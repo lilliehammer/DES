@@ -238,7 +238,39 @@ BLOCKLIST read_cleartext_message(FILE *msg_fp) {
 // 64-bit blocks.
 BLOCKLIST read_encrypted_file(FILE *msg_fp) {
     // TODO
-   return NULL;
+    // call pad_last_block() here to pad the last block!
+	
+	struct BLOCK *head = malloc(sizeof(struct BLOCK));
+	struct BLOCK *curr = head;
+	//BLOCKLIST *head = &curr;
+	
+	char *stringPart = malloc(sizeof(char) * 8);
+	char c;
+	int i = 0;
+	//read file char by char
+	while ((c = fgetc(msg_fp)) != EOF) {
+		//add 8 chars to stringPart
+		if (i < 8) {
+			//Put it in backwards, but can change it later if need be
+			stringPart[(7-i++)] = c;
+		}
+		
+		//else we should make a BLOCK, and reset
+		else {
+			//reset
+			i = 0;
+			
+			(*curr).block = *((uint64_t*) stringPart);
+			(*curr).size = 8;
+			(*curr).next = malloc(sizeof(struct BLOCK));
+			
+			//printf("read_cleartext_message: currblock: %lx, headblock: %lx\n", (*curr).block, (*head).block);
+			curr = (*curr).next;
+			
+		}
+	}
+	//printf("read_cleartext_message ending: head.block is %lx\n", (*head).block);
+   return head;
 }
 
 // Reads 56-bit key into a 64 bit unsigned int. We will ignore the most significant byte,
@@ -254,12 +286,26 @@ KEYTYPE read_key(FILE *key_fp) {
 // just write each 64-bit block directly to the file, without any conversion.
 void write_encrypted_message(FILE *msg_fp, BLOCKLIST msg) {
     // TODO
+	struct BLOCK *head = msg;
+
+	struct BLOCK currBlock = *head;
+
+	while(currBlock != NULL){
+		fwrite(&currBlock.block,sizeof(64),1,msg_fp);
+		currBlock = currBlock.next;
+	}
 }
 
-// Write the encrypted blocks to file. This is called by the decryption routine.
+// Write the decrypted blocks to file. This is called by the decryption routine.
 // The output file is a plain ASCII file, containing the decrypted text message.
 void write_decrypted_message(FILE *msg_fp, BLOCKLIST msg) {
-    // TODO
+    struct BLOCK *head = msg;
+	struct BLOCK currBlock = *head;
+
+	while(currBlock != NULL){
+		fwrite(&currBlock.block,sizeof(64),1,msg_fp);
+		currBlock = currBlock.next;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
