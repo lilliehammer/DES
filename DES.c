@@ -312,6 +312,12 @@ void write_decrypted_message(FILE *msg_fp, BLOCKLIST msg) {
 // Encryption
 /////////////////////////////////////////////////////////////////////////////
 
+//I got this online 
+void addbit(uint64_t *to, uint64_t from, uint64_t fromPos, int toPos) {
+	if(((from << (fromPos)) & 0x8000000000000000) != 0)
+        *to += (0x8000000000000000 >> toPos);
+}
+
 // Encrypt one block. This is where the main computation takes place. It takes
 // one 64-bit block as input, and returns the encrypted 64-bit block. The 
 // subkeys needed by the Feistel Network is given by the function getSubKey(i).
@@ -321,18 +327,29 @@ BLOCKTYPE des_enc(BLOCKTYPE v){
 	//INITIAL DATA PERMUTATION
 	//Permute 64-bit data block with Permutation Table IP
 	int i = 0;
+	uint64_t encryptedBlock = 0;
 	for (i = 0; i < 64; i++) {
-		
+		addbit(&encryptedBlock, v, init_perm[i] - 1, i);
 	}
+	printf("%lx\n", encryptedBlock);
 	
 	//get right half and left half
 	
 	
-	SUBKEYTYPE leftHalf = (v >> 32);
-	SUBKEYTYPE rightHalf = v & 0x00000000ffffffff;
+	SUBKEYTYPE leftHalfOld = (encryptedBlock >> 32);
+	SUBKEYTYPE rightHalfOld = encryptedBlock & 0x00000000ffffffff;
+	SUBKEYTYPE leftHalfNew = 0;
+	SUBKEYTYPE rightHalfNew = 0;
 	
 	for (i = 0; i < 16; i++) {
+		leftHalfNew = rightHalfOld;
+		rightHalfNew = leftHalfOld ^ getSubKey(i);
 		
+		uint64_t key = getSubKey(i);
+		
+		leftHalfOld = leftHalfNew;
+		rightHalfOld = rightHalfNew;
+		printf("%x %x\n", leftHalfOld, rightHalfOld);
 	}
 
    return 0;
