@@ -74,6 +74,7 @@ uint64_t getSubKey(int i) {
 // The provided key expansion routine is a simple rotate left by n bits, but
 // should be good enough to get you started.
 void generateSubKeys(KEYTYPE key) {
+	printf("generateSubKeys: key is %lx\n", key);
     int i;
     for(i = 0; i < 16; i++) {
         subkeys[i] = ((key << i) | (key >> (64 - i))) & 0xFFFFFFFFFFFF;
@@ -247,7 +248,15 @@ BLOCKLIST read_encrypted_file(FILE *msg_fp) {
 // exactly one line. That line has a single hex number on it, the key, such as 0x08AB674D9.
 KEYTYPE read_key(FILE *key_fp) {
     // TODO
-   return 0;
+	size_t len = sizeof(char) * 11;
+	char *keyString = malloc(len);
+	getline(&keyString, &len, key_fp);
+	
+	uint64_t key = strtol(keyString, NULL, 16);
+	uint64_t key2 = (key & 0x00ffffffffffffff) >> 4;
+	
+	printf("Key: %lx, Key2: %lx\n", key, key2);
+   return key2;
 }
 
 // Write the encrypted blocks to file. The encrypted file is in binary, i.e., you can
@@ -267,16 +276,31 @@ void write_decrypted_message(FILE *msg_fp, BLOCKLIST msg) {
 /////////////////////////////////////////////////////////////////////////////
 
 //I got this online 
+/* 
 void addbit(uint64_t *to, uint64_t from, uint64_t fromPos, int toPos) {
 	if(((from << (fromPos)) & 0x8000000000000000) != 0)
         *to += (0x8000000000000000 >> toPos);
+} */
+void addbit(uint64_t *to, uint64_t from, uint64_t fromPos, int toPos) {
+	if(((from << (fromPos)) & 0x8000000000000000) != 0)
+        *to += (0x8000000000000000 >> toPos);
+	
 }
+
+
+
+void addbitExpand(uint64_t *to, uint32_t from, uint64_t fromPos, int toPos) {
+	if(((from << (fromPos)) & 0x80000000) != 0)
+        *to += (0x80000000 >> toPos);
+}
+
 
 // Encrypt one block. This is where the main computation takes place. It takes
 // one 64-bit block as input, and returns the encrypted 64-bit block. The 
 // subkeys needed by the Feistel Network is given by the function getSubKey(i).
 BLOCKTYPE des_enc(BLOCKTYPE v){	
 	// TODO
+	printf("%lx\n", v);
 	
 	//INITIAL DATA PERMUTATION
 	//Permute 64-bit data block with Permutation Table IP
@@ -291,19 +315,35 @@ BLOCKTYPE des_enc(BLOCKTYPE v){
 	
 	
 	SUBKEYTYPE leftHalfOld = (encryptedBlock >> 32);
-	SUBKEYTYPE rightHalfOld = encryptedBlock & 0x00000000ffffffff;
+	SUBKEYTYPE rightHalfOld = encryptedBlock & 0x00000000ffffffff; //TODO: FIXME
+	printf("Left half: %x, Right half: %x\n", leftHalfOld, rightHalfOld);
 	SUBKEYTYPE leftHalfNew = 0;
 	SUBKEYTYPE rightHalfNew = 0;
 	
-	for (i = 0; i < 16; i++) {
+	//for (i = 0; i < 16; i++) {
 		leftHalfNew = rightHalfOld;
-		rightHalfNew = leftHalfOld ^ getSubKey(i);
+		
+		
+		//expand right into 48 bits		
+		int j;
+		uint64_t expandedRight = 0;
+		for (j = 0; j < 48; j++) {
+			addbitExpand(&expandedRight, rightHalfOld, expand_box[j] - 1, j);
+		}
+		printf("Right: %x, Expanded right: %lx Key: %lx\n", rightHalfOld, expandedRight, getSubKey(1));
+		
+		
 		
 		uint64_t key = getSubKey(i);
 		
 		leftHalfOld = leftHalfNew;
 		rightHalfOld = rightHalfNew;
 		printf("%x %x\n", leftHalfOld, rightHalfOld);
+	//}
+	
+	int testKey;
+	for (testKey = 0; testKey < 16; testKey++) {
+		printf("Key#%d : %lx\n", testKey, getSubKey(testKey));
 	}
 
    return 0;
@@ -315,7 +355,12 @@ BLOCKLIST des_enc_ECB(BLOCKLIST msg) {
     // TODO
     // Should call des_enc in here repeatedly
 	struct BLOCK currBlock = *msg;
-	des_enc(currBlock.block);
+	while (currBlock.next != NULL) {
+		des_enc(currBlock.block);
+		currBlock = *currBlock.next;
+	}
+	
+	
 	
    return NULL;
 }
