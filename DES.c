@@ -173,7 +173,7 @@ uint64_t sbox_8[4][16] = {
 BLOCKLIST pad_last_block(BLOCKLIST blocks) {
     // TODO
 	//get to last block
-	printf("pad_last_block: Block size is %d\n", blocks->size);
+	//printf("pad_last_block: Block size is %d\n", blocks->size);
    return blocks;
 }
 
@@ -187,17 +187,16 @@ BLOCKLIST read_cleartext_message(FILE *msg_fp) {
 	
 	struct BLOCK *head = malloc(sizeof(struct BLOCK));
 	struct BLOCK *curr = head;
-	//BLOCKLIST *head = &curr;
 	
 	char *stringPart = malloc(sizeof(char) * 8);
 	char c;
 	int i = 0;
+	
 	//read file char by char
 	while ((c = fgetc(msg_fp)) != EOF) {
 		//add 8 chars to stringPart
 		if (i < 8) {
-			//Put it in backwards, but can change it later if need be
-			stringPart[(7-i++)] = c;
+			stringPart[i++] = c;
 		}
 		
 		//else we should make a BLOCK, and reset
@@ -208,19 +207,25 @@ BLOCKLIST read_cleartext_message(FILE *msg_fp) {
 			(*curr).block = *((uint64_t*) stringPart);
 			(*curr).size = 8;
 			(*curr).next = malloc(sizeof(struct BLOCK));
-			
-			//printf("read_cleartext_message: currblock: %lx, headblock: %lx\n", (*curr).block, (*head).block);
 			curr = (*curr).next;
 			
+			//still need to add a char to stringpart
+			stringPart[i++] = c;
 		}
 	}
-	//printf("read_cleartext_message ending: head.block is %lx\n", (*head).block);
 	if (i == 0) { //Can make an empty block
 		(*curr).block = *((uint64_t*) "00000000");
 		(*curr).size = 0;
 		(*curr).next = NULL;
-		printf("read_cleartext_message: emptyBlock, %lx\n", (*head).block);
-	} else {
+	} else if (i == 8) { //Can make a full block, and empty block
+		(*curr).block = *((uint64_t*) stringPart);
+		(*curr).size = 8;
+		(*curr).next = malloc(sizeof(struct BLOCK));
+		curr = (*curr).next;
+		(*curr).block = *((uint64_t*) "00000000");
+		(*curr).size = 0;
+		(*curr).next = NULL;
+	} else { //Make partial block
 		(*curr).size = i+1;
 		while (i < 7) {
 			stringPart[i++] = '0';
@@ -229,50 +234,36 @@ BLOCKLIST read_cleartext_message(FILE *msg_fp) {
 		(*curr).block = *((uint64_t*) stringPart);
 		(*curr).next = NULL;
 	} 
-	//printf("read_cleartext_message ending: head.block is %lx\n", (*head).block);
    return head;
 } 
 
 // Reads the encrypted message, and returns a linked list of blocks, each 64 bits. 
 // Note that, because of the padding that was done by the encryption, the length of 
 // this file should always be a multiople of 8 bytes. The output is a linked list of
-// 64-bit blocks.
+// 64-bit blocks. 
+
 BLOCKLIST read_encrypted_file(FILE *msg_fp) {
-    // TODO
-    // call pad_last_block() here to pad the last block!
-	
 	struct BLOCK *head = malloc(sizeof(struct BLOCK));
-	struct BLOCK *curr = head;
-	//BLOCKLIST *head = &curr;
+	struct BLOCK *curr = NULL;
 	
-	char *stringPart = malloc(sizeof(char) * 8);
-	char c;
-	int i = 0;
+	char *c = NULL;
+	size_t len = sizeof(BLOCKTYPE);
 	//read file char by char
-	while ((c = fgetc(msg_fp)) != EOF) {
-		//add 8 chars to stringPart
-		if (i < 8) {
-			//Put it in backwards, but can change it later if need be
-			stringPart[(7-i++)] = c;
-		}
-		
-		//else we should make a BLOCK, and reset
-		else {
-			//reset
-			i = 0;
-			
-			(*curr).block = *((uint64_t*) stringPart);
-			(*curr).size = 8;
-			(*curr).next = malloc(sizeof(struct BLOCK));
-			
-			//printf("read_cleartext_message: currblock: %lx, headblock: %lx\n", (*curr).block, (*head).block);
+	while (getline(&c, &len, msg_fp) != -1) {		
+		if (curr == NULL) {
+			curr = head;
+		} else {
 			curr = (*curr).next;
-			
 		}
+		(*curr).block = strtoul(c, NULL, 16);
+		(*curr).size = 8;
+		(*curr).next = malloc(sizeof(struct BLOCK));
+		
 	}
-	//printf("read_cleartext_message ending: head.block is %lx\n", (*head).block);
+	(*curr).next = NULL;
+	
    return head;
-}
+} 
 
 // Reads 56-bit key into a 64 bit unsigned int. We will ignore the most significant byte,
 // i.e. we'll assume that the top 8 bits are all 0. In real DES, these are used to check 
@@ -287,7 +278,6 @@ KEYTYPE read_key(FILE *key_fp) {
 	uint64_t key = strtol(keyString, NULL, 16);
 	uint64_t key2 = (key & 0x00ffffffffffffff) >> 4;
 	
-	printf("Key: %lx, Key2: %lx\n", key, key2);
    return key2;
 }
 
@@ -297,36 +287,49 @@ void write_encrypted_message(FILE *msg_fp, BLOCKLIST msg) {
     // TODO
 	struct BLOCK *head = msg;
 
-	struct BLOCK currBlock = *head;
+	struct BLOCK *currBlock = head;
 
 	while(currBlock != NULL){
-		fwrite(&currBlock.block,sizeof(64),1,msg_fp);
-		currBlock = currBlock.next;
+		fprintf(msg_fp, "%lx\n", (*currBlock).block);
+		currBlock = (*currBlock).next;
 	}
 }
 
-// Write the decrypted blocks to file. This is called by the decryption routine.
+// Write the decrypted blocks to file. This is called by the decryption routine. 
 // The output file is a plain ASCII file, containing the decrypted text message.
 void write_decrypted_message(FILE *msg_fp, BLOCKLIST msg) {
     struct BLOCK *head = msg;
-	struct BLOCK currBlock = *head;
+	struct BLOCK *currBlock = head; 
 
 	while(currBlock != NULL){
-		fwrite(&currBlock.block,sizeof(64),1,msg_fp);
-		currBlock = currBlock.next;
-	}
+		BLOCKTYPE block = (*currBlock).block;
+		printf("Block: %lx\n", block);
+		int i;
+		int size = 8;
+		//if last block, might not need to read all chars
+		if ((*currBlock).next == NULL) {
+			size = ((block >> 56)& 0x00000000000000ff);
+			size -= 1;
+			printf("Else:: %lx %d %x\n", block, size, size);
+		}
+		
+		//turn into human-readable characters
+		for (i = 0; i < size; i++) {
+			SUBKEYTYPE d = ((block >> (i*8)) & 0x00000000000000ff);
+			char c = d ;
+			
+			fprintf(msg_fp, "%c", c);
+		}
+		
+		currBlock = (*currBlock).next;
+	} 
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // Encryption
 /////////////////////////////////////////////////////////////////////////////
 
-//I got this online 
-/* 
-void addbit(uint64_t *to, uint64_t from, uint64_t fromPos, int toPos) {
-	if(((from << (fromPos)) & 0x8000000000000000) != 0)
-        *to += (0x8000000000000000 >> toPos);
-} */
+
 void addbit(uint64_t *to, uint64_t from, uint64_t fromPos, int toPos) {
 	if(((from << (fromPos)) & 0x8000000000000000) != 0)
         *to += (0x8000000000000000 >> toPos);
@@ -344,9 +347,10 @@ void addbitExpand(uint64_t *to, uint32_t from, uint64_t fromPos, int toPos) {
 // Encrypt one block. This is where the main computation takes place. It takes
 // one 64-bit block as input, and returns the encrypted 64-bit block. The 
 // subkeys needed by the Feistel Network is given by the function getSubKey(i).
+
 BLOCKTYPE des_enc(BLOCKTYPE v){	
 	// TODO
-	printf("%lx\n", v);
+
 	
 	//INITIAL DATA PERMUTATION
 	//Permute 64-bit data block with Permutation Table IP
@@ -355,44 +359,13 @@ BLOCKTYPE des_enc(BLOCKTYPE v){
 	for (i = 0; i < 64; i++) {
 		addbit(&encryptedBlock, v, init_perm[i] - 1, i);
 	}
-	printf("%lx\n", encryptedBlock);
+	
+	return encryptedBlock;
 	
 	//get right half and left half
 	
 	
-	SUBKEYTYPE leftHalfOld = (encryptedBlock >> 32);
-	SUBKEYTYPE rightHalfOld = encryptedBlock & 0x00000000ffffffff; //TODO: FIXME
-	printf("Left half: %x, Right half: %x\n", leftHalfOld, rightHalfOld);
-	SUBKEYTYPE leftHalfNew = 0;
-	SUBKEYTYPE rightHalfNew = 0;
-	
-	//for (i = 0; i < 16; i++) {
-		leftHalfNew = rightHalfOld;
-		
-		
-		//expand right into 48 bits		
-		int j;
-		uint64_t expandedRight = 0;
-		for (j = 0; j < 48; j++) {
-			addbitExpand(&expandedRight, rightHalfOld, expand_box[j] - 1, j);
-		}
-		printf("Right: %x, Expanded right: %lx Key: %lx\n", rightHalfOld, expandedRight, getSubKey(1));
-		
-		
-		
-		uint64_t key = getSubKey(i);
-		
-		leftHalfOld = leftHalfNew;
-		rightHalfOld = rightHalfNew;
-		printf("%x %x\n", leftHalfOld, rightHalfOld);
-	//}
-	
-	int testKey;
-	for (testKey = 0; testKey < 16; testKey++) {
-		printf("Key#%d : %lx\n", testKey, getSubKey(testKey));
-	}
-
-   return 0;
+   
 }
 
 // Encrypt the blocks in ECB mode. The blocks have already been padded 
@@ -400,15 +373,12 @@ BLOCKTYPE des_enc(BLOCKTYPE v){
 BLOCKLIST des_enc_ECB(BLOCKLIST msg) {
     // TODO
     // Should call des_enc in here repeatedly
-	struct BLOCK currBlock = *msg;
-	while (currBlock.next != NULL) {
-		des_enc(currBlock.block);
-		currBlock = *currBlock.next;
+	struct BLOCK *headBlock = msg;
+	while (msg != NULL) {
+		(*msg).block = des_enc((*msg).block);
+		msg = (*msg).next;
 	}
-	
-	
-	
-   return NULL;
+   return headBlock;
 }
 
 // Same as des_enc_ECB, but encrypt the blocks in Counter mode.
@@ -425,8 +395,15 @@ BLOCKLIST des_enc_CTR(BLOCKLIST msg) {
 /////////////////////////////////////////////////////////////////////////////
 // Decrypt one block.
 BLOCKTYPE des_dec(BLOCKTYPE v){
-    // TODO
-   return 0;
+   //INITIAL DATA PERMUTATION
+	//Permute 64-bit data block with Permutation Table IP
+	int i = 0;
+	uint64_t decryptedBlock = 0;
+	for (i = 0; i < 64; i++) {
+		addbit(&decryptedBlock, v, final_perm[i] - 1, i);
+	}
+	
+	return decryptedBlock;
 }
 
 // Decrypt the blocks in ECB mode. The input is a list of encrypted blocks,
@@ -434,7 +411,12 @@ BLOCKTYPE des_dec(BLOCKTYPE v){
 BLOCKLIST des_dec_ECB(BLOCKLIST msg) {
     // TODO
     // Should call des_dec in here repeatedly
-   return NULL;
+   struct BLOCK *headBlock = msg;
+	while (msg != NULL) {
+		(*msg).block = des_dec((*msg).block);
+		msg = (*msg).next;
+	}
+   return headBlock;
 }
 
 // Decrypt the blocks in Counter mode
@@ -462,13 +444,17 @@ void encrypt (int argc, char **argv) {
          printf("No such mode.\n");
 		 exit(1);
       };
-      FILE *encrypted_msg_fp = fopen("encrypted_msg.bin", "r");
-      write_encrypted_message(encrypted_msg_fp, encrypted_message);
+      FILE *encrypted_msg_fp = fopen("encrypted_msg.bin", "w");
+	  if (encrypted_msg_fp == NULL) {
+		printf("Error opening file\n");
+	  }
+	  printf("encrypt before write: %lx\n", (*encrypted_message).block);
+      write_encrypted_message(encrypted_msg_fp, encrypted_message); 
       fclose(encrypted_msg_fp);
 }
 
 void decrypt (int argc, char **argv) {
-      FILE *encrypted_msg_fp = fopen("encrypted_msg.bin", "wb");
+      FILE *encrypted_msg_fp = fopen("encrypted_msg.bin", "r");
       BLOCKLIST encrypted_message = read_encrypted_file(encrypted_msg_fp);
       fclose(encrypted_msg_fp);
 
@@ -476,12 +462,14 @@ void decrypt (int argc, char **argv) {
       if (strcmp(argv[2], "-ecb")) {	
          decrypted_message = des_dec_ECB(encrypted_message);
       } else if (strcmp(argv[2], "-ctr")) {	
+		 //int des = 1;
+		 //if (des == 1) printf("Endrypted with DES");
          encrypted_message = des_dec_CTR(encrypted_message);
       } else {
          printf("No such mode.\n");
       };
 
-      FILE *decrypted_msg_fp = fopen("decrypted_message.txt", "wb");
+      FILE *decrypted_msg_fp = fopen("decrypted_message.txt", "w");
       write_decrypted_message(decrypted_msg_fp, decrypted_message);
       fclose(decrypted_msg_fp);
 }
